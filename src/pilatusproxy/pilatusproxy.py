@@ -24,6 +24,7 @@ class PilatusProxyDS(Device):
     @attribute(label='nimages', dtype=int, doc='Number of images')
     def nimages(self):
         print('getting nimages')
+        return 123
 
     @nimages.write
     def nimages(self, val):
@@ -32,6 +33,7 @@ class PilatusProxyDS(Device):
     @attribute(label='imgpath', dtype=str, doc='Local DCU image path')
     def imgpath(self):
         print('getting imgpath')
+        return '/some/path'
 
     @imgpath.write
     def imgpath(self, val):
@@ -40,6 +42,7 @@ class PilatusProxyDS(Device):
     @attribute(label='exptime', dtype=float, doc='Exposure time', unit='s')
     def exptime(self):
         print('getting exptime')
+        return .007
 
     @exptime.write
     def exptime(self, val):
@@ -48,6 +51,7 @@ class PilatusProxyDS(Device):
     @attribute(label='expperiod', dtype=float, doc='Exposure period (exposure time + readout)', unit='s')
     def expperiod(self):
         print('getting expperiod')
+        return .010
 
     @expperiod.write
     def expperiod(self, val):
@@ -64,7 +68,7 @@ class PilatusProxyDS(Device):
         print('Hardware triggered exposure to %s (one trigger for the whole train)' % filename)
 
     @command(dtype_in=str)
-    def exttrigger(self, filename):
+    def extmtrigger(self, filename):
         print('Hardware triggered exposure to %s (one trigger per frame)' % filename)
 
 
