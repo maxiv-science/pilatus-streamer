@@ -1,0 +1,10 @@
+README.md
+setup.cfg
+setup.py
+scripts/pilatusproxy
+src/pilatusproxy/__init__.py
+src/pilatusproxy/pilatusproxy.py
+src/tangods_pilatusproxy.egg-info/PKG-INFO
+src/tangods_pilatusproxy.egg-info/SOURCES.txt
+src/tangods_pilatusproxy.egg-info/dependency_links.txt
+src/tangods_pilatusproxy.egg-info/top_level.txt
