@@ -22,7 +22,7 @@ class PilatusProxyDS(Device):
     def nimages(self, val):
         self.det.set_nimages(val)
 
-    @attribute(label='imgpath', dtype=str, doc='Local DCU image path')
+    @attribute(label='imgpath', dtype=str, doc='Local DCU image path', memorized=True, hw_memorized=True)
     def imgpath(self):
         return self.det.get_imgpath()
 
