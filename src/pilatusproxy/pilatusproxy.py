@@ -46,6 +46,14 @@ class PilatusProxyDS(Device):
     def expperiod(self, val):
         self.det.set_expperiod(val)
 
+    @attribute(label='disable_streaming', dtype=bool, doc='Disable interaction with the streamer')
+    def disable_streaming(self):
+        return not self.det._do_streaming
+
+    @disable_streaming.write
+    def disable_streaming(self, val):
+        self.det._do_streaming = (not val)
+
     ### Commands ###nimages
     
     @command(dtype_in=str)

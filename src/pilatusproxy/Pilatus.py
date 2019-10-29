@@ -12,6 +12,7 @@ class Pilatus:
         self.req_socket = self.context.socket(zmq.REQ)
         self.req_socket.connect('tcp://%s:9998' %hostname)
         self.nimages = 1
+        self._do_streaming = True
         
     def parse_response(self, pattern, timeout):
         ready = select.select([self.sock], [], [], timeout)
@@ -76,9 +77,10 @@ class Pilatus:
             print('Error setting imgpath')
             
     def exposure(self, filename):
-        self.req_socket.send_string(str(self.nimages))
-        print('send nimages')
-        print(self.req_socket.recv())
+        if self._do_streaming:
+            self.req_socket.send_string(str(self.nimages))
+            print('send nimages')
+            print(self.req_socket.recv())
         
         self.sock.send(b'exposure %s\0' %filename)
         if not self.check_response('15 OK  Starting', 1.0):
