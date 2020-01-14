@@ -91,6 +91,9 @@ class Pilatus:
             print('Error setting energy')
 
     def exposure(self, filename=''):
+        if self.get_exptime() > self.get_expperiod() - .003:
+            print('Exposure time too long!')
+            return
         res = self.query('exposure %s' % filename, timeout=10)
         if res is None or not res.startswith('15 OK  Starting'):
             print('Error starting exposure')
