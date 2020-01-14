@@ -3,90 +3,94 @@ import time
 import socket
 import select
 
+BUF_SIZE = 1024
+
 class Pilatus:
     def __init__(self, hostname):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((hostname, 8888))
         self.set_imgpath('/lima_data/')
-        
-    def parse_response(self, pattern, timeout):
+
+    def _clear_buffer(self):
+        while True:
+            ready = select.select([self.sock], [], [], 0)
+            if ready[0]:
+                self.sock.recv(1024)
+            else:
+                break
+
+    def query(self, command, timeout=1):
+        self._clear_buffer()
+        self.sock.send(bytes(command + '\0'))
         ready = select.select([self.sock], [], [], timeout)
         if ready[0]:
-            response = self.sock.recv(1024)
-            print(response)
-            match = re.compile(pattern).match(response)
-            ret = match.groups(1)[0] if match else None
-            #print(ret)
-            return ret
-
-    def check_response(self, pattern, timeout):
-        ready = select.select([self.sock], [], [], timeout)
-        if ready[0]:
-            response = self.sock.recv(1024)
-            print(response)
-            ret = True if response.startswith(pattern) else False
-            return ret
-
-    def get_nimages(self):
-         self.sock.send(b'nimages\0')
-         response = self.parse_response('15 OK N images set to: (\d+)', 10.0)
-         nimages = int(response) if response else 0
-         return nimages
-   
-    def set_nimages(self, value):
-        self.sock.send(b'nimages %d\0' %value)
-        if not self.check_response('15 OK', 10.0):
-            print('Error setting nimages')
-        self.nimages = value
-
-    def get_imgpath(self):
-        self.sock.send(b'imgpath\0')
-        response = self.parse_response('10 OK (.*)\x18', 10.0)
+            response = self.sock.recv(BUF_SIZE)
+        else:
+            response = None
         return response
 
-    def set_imgpath(self, path):
-        self.sock.send(b'imgpath %s\0' %path)
-        if not self.check_response('10 OK', 10.0):
+    def parse_response(self, data, pattern):
+        match = re.compile(pattern).match(data)
+        ret = match.groups(1)[0] if match else None
+        return ret
+
+    def get_nimages(self):
+        res = self.query('nimages')
+        res = self.parse_response(res, '15 OK N images set to: (\d+)')
+        nimages = int(res) if res else None
+        return nimages
+
+    def set_nimages(self, value):
+        res = self.query('nimages %d' % value)
+        if res is None or not res.startswith('15 OK'):
+            print('Error setting nimages')
+
+    def get_imgpath(self):
+        res = self.query('imgpath')
+        res = self.parse_response(res, '10 OK (.*)\x18')
+        return res
+
+    def set_imgpath(self, value):
+        res = self.query('imgpath %s' % value)
+        if res is None or not res.startswith('10 OK'):
             print('Error setting imgpath')
-            
+
     def get_exptime(self):
-        self.sock.send(b'exptime\0')
-        response = self.parse_response('15 OK Exposure time set to: (.*) sec.\x18', 10.0)
-        exptime = float(response) if response else 0
-        return exptime
+        res = self.query('exptime')
+        res = self.parse_response(res, '15 OK Exposure time set to: (.*) sec.\x18')
+        return float(res)
 
     def set_exptime(self, value):
-        self.sock.send(b'exptime %f\0' %value)
-        if not self.check_response('15 OK', 10.0):
-            print('Error setting imgpath')
-            
+        res = self.query('exptime %f' % value)
+        if res is None or not res.startswith('15 OK'):
+            print('Error setting exptime')
+
     def get_expperiod(self):
-        self.sock.send(b'expperiod\0')
-        response = self.parse_response('15 OK Exposure period set to: (.*) sec\x18', 10.0)
-        exptime = float(response) if response else 0
-        return exptime
+        res = self.query('expperiod')
+        res = self.parse_response(res, '15 OK Exposure period set to: (.*) sec\x18')
+        return float(res)
 
     def set_expperiod(self, value):
-        self.sock.send(b'expperiod %f\0' %value)
-        if not self.check_response('15 OK', 10.0):
-            print('Error setting imgpath')
-            
+        res = self.query('expperiod %f' % value)
+        if res is None or not res.startswith('15 OK'):
+            print('Error setting expperiod')
+
     def get_energy(self):
-        self.sock.send(b'setenergy\0')
-        response = self.parse_response('15 OK Energy setting: (.*) eV', 10.0)
-        energy = float(response) if response else None
+        res = self.query('setenergy', timeout=20)
+        res = self.parse_response(res, '15 OK Energy setting: (.*) eV')
+        energy = float(res) if res else None
         return energy
 
     def set_energy(self, value):
-        self.sock.send(b'setenergy %f\0' %value)
-        if not self.check_response('15 OK', 20.0):
+        res = self.query('setenergy %f' % value, timeout=20)
+        if res is None or not res.startswith('15 OK'):
             print('Error setting energy')
 
     def exposure(self, filename=''):
-        self.sock.send(b'exposure %s\0' %filename)
-        if not self.check_response('15 OK  Starting', 10.0):
+        res = self.query('exposure %s' % filename, timeout=10)
+        if res is None or not res.startswith('15 OK  Starting'):
             print('Error starting exposure')
-        
+
     def acquiring(self):
         ready = select.select([self.sock], [], [], 0.0)
         if ready[0]:
@@ -98,5 +102,4 @@ class Pilatus:
                 return True
         else:
             return True
-            
 
