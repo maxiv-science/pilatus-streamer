@@ -9,6 +9,7 @@ class Pilatus:
     def __init__(self, hostname):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((hostname, 8888))
+        self._started = False
         self.set_imgpath('/lima_data/')
 
     def _clear_buffer(self):
@@ -20,6 +21,9 @@ class Pilatus:
                 break
 
     def query(self, command, timeout=1):
+        if self.acquiring():
+            print('Detector measuring, better not...')
+            return ''
         self._clear_buffer()
         self.sock.send(bytes(command + '\0'))
         ready = select.select([self.sock], [], [], timeout)
@@ -90,16 +94,27 @@ class Pilatus:
         res = self.query('exposure %s' % filename, timeout=10)
         if res is None or not res.startswith('15 OK  Starting'):
             print('Error starting exposure')
+        else:
+            self._started = True
 
     def acquiring(self):
+        if not self._started:
+            return False
+
         ready = select.select([self.sock], [], [], 0.0)
         if ready[0]:
             response = self.sock.recv(1024)
             if response.startswith('7 OK'):
+                self._started = False
                 return False
-            else:
-                print('Unkown response: %s' %response)
-                return True
-        else:
-            return True
+        return True
+
+    def stop(self):
+        if not self.acquiring:
+            return
+        self.sock.send(b'k\0')
+        buf = ''
+        while '7 OK' not in buf:
+            buf += self.sock.recv(1024)
+        self._started = False
 
