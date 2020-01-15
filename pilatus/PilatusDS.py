@@ -3,7 +3,7 @@ from tango import DevState
 from tango.server import Device, attribute, command, server_run,  device_property
 from .Pilatus import Pilatus
 
-class PilatusProxyDS(Device):
+class PilatusDS(Device):
     """
     A Pilatus device
     """
@@ -58,7 +58,7 @@ class PilatusProxyDS(Device):
     
     @command(dtype_in=str)
     def exposure(self, filename):
-        print 'exposure()'
+        print('exposure()')
         self.set_state(DevState.RUNNING)
         if not filename.endswith('.tif'):
             filename += '.tif'
@@ -78,7 +78,7 @@ class PilatusProxyDS(Device):
     # Device methods
     def init_device(self):
         """Instantiate device object, do initial instrument configuration."""
-        print 'init_device()'
+        print('init_device()')
         self.set_state(DevState.INIT)
         
         try:
@@ -87,21 +87,21 @@ class PilatusProxyDS(Device):
             self.set_state(DevState.FAULT)
             self.set_status('Device failed at init: %s' % e.message)
 
-        print 'going to connect to %s' % self.Host
+        print('going to connect to %s' % self.Host)
         self.det = Pilatus(self.Host)
         self.set_state(DevState.ON)
 
     # This sets the state before every command
     def always_executed_hook(self):
-        print 'always_executed_hook()'
+        print('always_executed_hook()')
 
         if self.get_state() == DevState.RUNNING:
             if not self.det.acquiring():
                 self.set_state(DevState.ON)
-                print '...was not running'
+                print('...was not running')
 
 def main():
-    server_run((PilatusProxyDS,))
+    server_run((PilatusDS,))
 
 if __name__ == "__main__":
     main()
