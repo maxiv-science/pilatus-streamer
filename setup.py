@@ -10,5 +10,5 @@ setup(name = "pilatus",
       url = "http://www.maxiv.lu.se",
       packages = ['pilatus'],
       entry_points = {'console_scripts':
-                      ['pilatusds = pilatus.PilatusDS:main']}
+                      ['PilatusDS = pilatus.PilatusDS:main']}
      )

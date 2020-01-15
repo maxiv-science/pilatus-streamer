@@ -95,6 +95,8 @@ class Pilatus:
         The command argument can be 'exposure', 'extmtrigger',
         'extenable', 'exttrigger', see the Pilatus manual.
         """
+        allowed = ('exposure', 'extmtrigger', 'extenable', 'exttrigger')
+        assert command in allowed
         if self.get_exptime() > self.get_expperiod() - .003:
             print('Exposure time too long!')
             return

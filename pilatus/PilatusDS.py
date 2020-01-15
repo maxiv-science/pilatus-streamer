@@ -46,32 +46,31 @@ class PilatusDS(Device):
     def expperiod(self, val):
         self.det.set_expperiod(val)
 
-    @attribute(label='disable_streaming', dtype=bool, doc='Disable interaction with the streamer')
-    def disable_streaming(self):
-        return not self.det._do_streaming
-
-    @disable_streaming.write
-    def disable_streaming(self, val):
-        self.det._do_streaming = (not val)
-
-    ### Commands ###nimages
+    ### Commands ###
     
     @command(dtype_in=str)
     def exposure(self, filename):
-        print('exposure()')
         self.set_state(DevState.RUNNING)
-        if not filename.endswith('.tif'):
-            filename += '.tif'
-        self.det.exposure(filename)
+        self.det.start(filename=filename, command='exposure')
 
     @command(dtype_in=str)
     def exttrigger(self, filename):
-        raise NotImplementedError('Hardware triggered exposure to %s (one trigger for the whole train)' % filename)
+        self.set_state(DevState.RUNNING)
+        self.det.start(filename=filename, command='exttrigger')
 
     @command(dtype_in=str)
     def extmtrigger(self, filename):
-        raise NotImplementedError('Hardware triggered exposure to %s (one trigger per frame)' % filename)
+        self.set_state(DevState.RUNNING)
+        self.det.start(filename=filename, command='extmtrigger')
 
+    @command(dtype_in=str)
+    def extenable(self, filename):
+        self.set_state(DevState.RUNNING)
+        self.det.start(filename=filename, command='extenable')
+
+    @command()
+    def stop(self):
+        self.det.stop()
 
     ### Other stuff ###
 
@@ -93,12 +92,9 @@ class PilatusDS(Device):
 
     # This sets the state before every command
     def always_executed_hook(self):
-        print('always_executed_hook()')
-
         if self.get_state() == DevState.RUNNING:
             if not self.det.acquiring():
                 self.set_state(DevState.ON)
-                print('...was not running')
 
 def main():
     server_run((PilatusDS,))
