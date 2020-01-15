@@ -90,12 +90,16 @@ class Pilatus:
         if res is None or not res.startswith('15 OK'):
             print('Error setting energy')
 
-    def exposure(self, filename=''):
+    def start(self, filename='', command='exposure'):
+        """
+        The command argument can be 'exposure', 'extmtrigger',
+        'extenable', 'exttrigger', see the Pilatus manual.
+        """
         if self.get_exptime() > self.get_expperiod() - .003:
             print('Exposure time too long!')
             return
-        res = self.query('exposure %s' % filename, timeout=10)
-        if res is None or (not res.startswith('15 OK  Starting')) or ('ERR' in res):
+        res = self.query('%s %s' % (command, filename), timeout=10)
+        if res is None or (not res.startswith('15 OK')) or ('ERR' in res):
             print('Error starting exposure')
         else:
             self._started = True
