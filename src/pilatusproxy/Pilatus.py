@@ -25,7 +25,7 @@ class Pilatus:
             print('Detector measuring, better not...')
             return ''
         self._clear_buffer()
-        self.sock.send(bytes(command + '\0'))
+        self.sock.send(bytes(command + '\0', encoding='ascii'))
         ready = select.select([self.sock], [], [], timeout)
         if ready[0]:
             response = self.sock.recv(BUF_SIZE)
