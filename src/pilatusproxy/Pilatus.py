@@ -28,7 +28,7 @@ class Pilatus:
         self.sock.send(bytes(command + '\0', encoding='ascii'))
         ready = select.select([self.sock], [], [], timeout)
         if ready[0]:
-            response = self.sock.recv(BUF_SIZE)
+            response = self.sock.recv(BUF_SIZE).decode(encoding='ascii')
         else:
             response = None
         return response
@@ -106,7 +106,7 @@ class Pilatus:
 
         ready = select.select([self.sock], [], [], 0.0)
         if ready[0]:
-            response = self.sock.recv(1024)
+            response = self.sock.recv(1024).decode(encoding='ascii')
             if response.startswith('7 OK'):
                 self._started = False
                 return False
@@ -118,6 +118,6 @@ class Pilatus:
         self.sock.send(b'k\0')
         buf = ''
         while '7 OK' not in buf:
-            buf += self.sock.recv(1024)
+            buf += self.sock.recv(1024).decode(encoding='ascii')
         self._started = False
 
