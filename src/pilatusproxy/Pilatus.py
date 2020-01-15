@@ -95,7 +95,7 @@ class Pilatus:
             print('Exposure time too long!')
             return
         res = self.query('exposure %s' % filename, timeout=10)
-        if res is None or not res.startswith('15 OK  Starting'):
+        if res is None or (not res.startswith('15 OK  Starting')) or ('ERR' in res):
             print('Error starting exposure')
         else:
             self._started = True
@@ -109,6 +109,8 @@ class Pilatus:
             response = self.sock.recv(1024).decode(encoding='ascii')
             if response.startswith('7 OK'):
                 self._started = False
+                if response.startswith('7 ERR'):
+                    print('Error! The acquisition didn''t finish')
                 return False
         return True
 
