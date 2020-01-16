@@ -14,6 +14,14 @@ class PilatusDS(Device):
 
     ### Attributes ###
 
+    @attribute(label='energy', dtype=int, doc='photon energy')
+    def energy(self):
+        return self.det.get_energy()
+
+    @energy.write
+    def energy(self, val):
+        self.det.set_energy(val)
+
     @attribute(label='nimages', dtype=int, doc='Number of images')
     def nimages(self):
         return self.det.get_nimages()
