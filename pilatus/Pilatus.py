@@ -120,7 +120,7 @@ class Pilatus:
         return True
 
     def stop(self):
-        if not self.acquiring:
+        if not self.acquiring():
             return
         self.sock.send(b'k\0')
         buf = ''
