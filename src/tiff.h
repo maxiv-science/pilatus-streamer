@@ -27,6 +27,7 @@ typedef struct
     uint32_t height;
     uint32_t strip_offsets;
     uint32_t strip_byte_counts;
+    char description[2048];
 } TifInfo;
 
 // Tif tag ids

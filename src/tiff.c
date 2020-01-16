@@ -42,9 +42,8 @@ void parse_tif(FILE* fp, TifInfo* info)
                 
             case IMAGE_DESCRIPTION:
                 fseek(fp, tag->data_offset, SEEK_SET);
-                char desc[1024];
-                fread(desc, tag->data_count, 1, fp);
-                debug_print("### Image description: ###\n%s\n", desc);
+                fread(info->description, tag->data_count, 1, fp);
+                debug_print("### Image description: ###\n%s\n", info->description);
                 break;
                 
             case STRIP_OFFSETS:

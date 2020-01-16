@@ -54,7 +54,7 @@ int connect_camserver()
     server.sin_addr.s_addr = inet_addr("127.0.0.1");
     server.sin_port = htons(41234);
     if (connect(sock, (struct sockaddr *)&server, sizeof(server)) < 0) {
-        printf("Eror connecting to camserver socket\n");
+        printf("Error connecting to camserver socket\n");
         return -1;
     }
     return sock;
@@ -72,7 +72,7 @@ int start_server()
     server.sin_addr.s_addr = INADDR_ANY;
     server.sin_port = htons(8888);
 	if( bind(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
-         printf("Eror binding to server socket: %s\n",
+         printf("Error binding to server socket: %s\n",
                 strerror(errno));
     }
     listen(sock, 3);
@@ -207,13 +207,20 @@ void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* base_folde
                 printf("Error could not delete file %s\n", full_path);
             }
             
+            float exposure_time = 0.0;
+            char* tmp = strstr(info.description, "Exposure_time");
+            if (tmp != NULL) {
+                sscanf(tmp + 13, "%f", &exposure_time);
+            }
+            
             char header[1024];
             int length = snprintf(header, 1024, 
                                   "{\"htype\": \"image\","
                                   "\"frame\": %d,"
                                   "\"shape\": [%d,%d],"
-                                  "\"type\": \"int32\"}",
-                                  frame_number, info.height, info.width);
+                                  "\"type\": \"int32\","
+                                  "\"exposure_time\": %f}",
+                                  frame_number, info.height, info.width, exposure_time);
             // send json header
             zmq_send(pilatus->push_socket, header, length, ZMQ_SNDMORE);
             
