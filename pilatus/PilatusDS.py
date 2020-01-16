@@ -87,8 +87,15 @@ class PilatusDS(Device):
             self.set_status('Device failed at init: %s' % e.message)
 
         print('going to connect to %s' % self.Host)
-        self.det = Pilatus(self.Host)
-        self.set_state(DevState.ON)
+        try:
+            self.det = Pilatus(self.Host)
+            self.set_state(DevState.ON)
+        except Exception as e:
+            msg = 'could not connect to %s!' % self.Host
+            print(msg)
+            print('Full error was:', e)
+            self.set_state(DevState.FAULT)
+            self.set_status(msg)
 
     # This sets the state before every command
     def always_executed_hook(self):
