@@ -47,7 +47,7 @@ class Pilatus:
     def set_nimages(self, value):
         res = self.query('nimages %d' % value)
         if res is None or not res.startswith('15 OK'):
-            print('Error setting nimages')
+            raise Exception('Error setting nimages')
 
     def get_imgpath(self):
         res = self.query('imgpath')
@@ -57,7 +57,7 @@ class Pilatus:
     def set_imgpath(self, value):
         res = self.query('imgpath %s' % value)
         if res is None or not res.startswith('10 OK'):
-            print('Error setting imgpath')
+            raise Exception('Error setting imgpath')
 
     def get_exptime(self):
         res = self.query('exptime')
@@ -67,7 +67,7 @@ class Pilatus:
     def set_exptime(self, value):
         res = self.query('exptime %f' % value)
         if res is None or not res.startswith('15 OK'):
-            print('Error setting exptime')
+            raise Exception('Error setting exptime')
 
     def get_expperiod(self):
         res = self.query('expperiod')
@@ -77,7 +77,7 @@ class Pilatus:
     def set_expperiod(self, value):
         res = self.query('expperiod %f' % value)
         if res is None or not res.startswith('15 OK'):
-            print('Error setting expperiod')
+            raise Exception('Error setting expperiod')
 
     def get_energy(self):
         res = self.query('setenergy', timeout=20)
@@ -88,7 +88,7 @@ class Pilatus:
     def set_energy(self, value):
         res = self.query('setenergy %f' % value, timeout=20)
         if res is None or not res.startswith('15 OK'):
-            print('Error setting energy')
+            raise Exception('Error setting energy')
 
     def start(self, filename='', command='exposure'):
         """
@@ -97,12 +97,11 @@ class Pilatus:
         """
         allowed = ('exposure', 'extmtrigger', 'extenable', 'exttrigger')
         assert command in allowed
-        if self.get_exptime() > self.get_expperiod() - .003:
-            print('Exposure time too long!')
-            return
+        if self.get_exptime() > (self.get_expperiod() - .003 + 1e-6):
+            raise Exception('Exposure time too long!')
         res = self.query('%s %s' % (command, filename), timeout=10)
         if res is None or (not res.startswith('15 OK')) or ('ERR' in res):
-            print('Error starting exposure')
+            raise Exception('Error starting exposure')
         else:
             self._started = True
 
@@ -116,7 +115,7 @@ class Pilatus:
             if response.startswith('7 OK'):
                 self._started = False
                 if response.startswith('7 ERR'):
-                    print('Error! The acquisition didn''t finish')
+                    raise Exception('Error! The acquisition didn''t finish')
                 return False
         return True
 
