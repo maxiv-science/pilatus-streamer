@@ -7,16 +7,31 @@ BUF_SIZE = 1024
 
 class Pilatus:
     def __init__(self, hostname):
+        self.hostname = hostname
+        self.initialize_socket()
+
+    def initialize_socket(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((hostname, 8888))
+        self.sock.connect((self.hostname, 8888))
         self._started = False
         self.set_imgpath('/lima_data/')
 
     def _clear_buffer(self):
+        """
+        Checks that the connection is OK and clears the buffer.
+        """
         while True:
             ready = select.select([self.sock], [], [], 0)
             if ready[0]:
-                self.sock.recv(1024)
+                try:
+                    dump = self.sock.recv(BUF_SIZE)
+                except OSError:
+                    self.initialize_socket()
+                    return
+                if len(dump) == 0:
+                    # only happens if the server has been dead
+                    print('something is strange - reinitializing the socket!')
+                    self.initialize_socket()
             else:
                 break
 
@@ -111,7 +126,7 @@ class Pilatus:
 
         ready = select.select([self.sock], [], [], 0.0)
         if ready[0]:
-            response = self.sock.recv(1024).decode(encoding='ascii')
+            response = self.sock.recv(BUF_SIZE).decode(encoding='ascii')
             if response.startswith('7 OK'):
                 self._started = False
                 if response.startswith('7 ERR'):
@@ -125,6 +140,6 @@ class Pilatus:
         self.sock.send(b'k\0')
         buf = ''
         while '7 OK' not in buf:
-            buf += self.sock.recv(1024).decode(encoding='ascii')
+            buf += self.sock.recv(BUF_SIZE).decode(encoding='ascii')
         self._started = False
 
