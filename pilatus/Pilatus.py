@@ -110,6 +110,8 @@ class Pilatus:
         The command argument can be 'exposure', 'extmtrigger',
         'extenable', 'exttrigger', see the Pilatus manual.
         """
+        if self.acquiring():
+            raise Exception('Already running!')
         allowed = ('exposure', 'extmtrigger', 'extenable', 'exttrigger')
         assert command in allowed
         if self.get_exptime() > (self.get_expperiod() - .003 + 1e-6):
@@ -127,6 +129,8 @@ class Pilatus:
         ready = select.select([self.sock], [], [], 0.0)
         if ready[0]:
             response = self.sock.recv(BUF_SIZE).decode(encoding='ascii')
+            if len(response) == 0:
+                raise Exception('The socket connecting client to streamer is dead')
             if response.startswith('7 OK'):
                 self._started = False
                 if response.startswith('7 ERR'):
@@ -137,9 +141,13 @@ class Pilatus:
     def stop(self):
         if not self.acquiring():
             return
-        self.sock.send(b'k\0')
+        self.sock.send(b'camcmd k\0')
         buf = ''
-        while '7 OK' not in buf:
-            buf += self.sock.recv(BUF_SIZE).decode(encoding='ascii')
+        while 'OK' not in buf:
+            ready = select.select([self.sock], [], [], 3.)
+            if ready[0]:
+                buf += self.sock.recv(BUF_SIZE).decode(encoding='ascii')
+            else:
+                raise Exception('camserver didn''t accept the stop command')
         self._started = False
 
