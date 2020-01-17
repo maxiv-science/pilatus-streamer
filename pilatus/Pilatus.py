@@ -148,6 +148,6 @@ class Pilatus:
             if ready[0]:
                 buf += self.sock.recv(BUF_SIZE).decode(encoding='ascii')
             else:
-                raise Exception('camserver didn''t accept the stop command')
+                raise Exception('The camserver didnt accept the stop command. This happens when it is running above 10 Hz or so.')
         self._started = False
 
