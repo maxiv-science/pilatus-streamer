@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -261,6 +262,10 @@ void notify_init(Notify* notify, const char* folder, uint32_t mask)
         printf("Error in inotify_init\n");
     }
     notify->wd = inotify_add_watch(notify->fd, folder, mask);
+    if (notify->wd == -1) {
+        printf("Error watching folder %s\n%s\n", folder, strerror(errno));
+        exit(-1);
+    }
 }
 
 void notify_close(Notify* notify)
