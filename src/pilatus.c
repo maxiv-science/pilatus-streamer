@@ -46,11 +46,11 @@ void pilatus_init(Pilatus* pilatus)
 int connect_camserver()
 {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-	if (sock == -1) {
-		printf("Could not create camserver socket");
+    if (sock == -1) {
+        printf("Could not create camserver socket");
         return -1;
-	}
-	struct sockaddr_in server;
+    }
+    struct sockaddr_in server;
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = inet_addr("127.0.0.1");
     server.sin_port = htons(41234);
@@ -65,16 +65,15 @@ int start_server()
 {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == -1) {
-		printf("Could not create server socket");
+        printf("Could not create server socket");
         return -1;
-	}
-	struct sockaddr_in server;
+    }
+    struct sockaddr_in server;
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
     server.sin_port = htons(8888);
-	if( bind(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
-         printf("Error binding to server socket: %s\n",
-                strerror(errno));
+    if( bind(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
+         printf("Error binding to server socket: %s\n", strerror(errno));
     }
     listen(sock, 3);
     return sock;
