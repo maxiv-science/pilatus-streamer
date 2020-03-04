@@ -79,7 +79,7 @@ void pilatus_init(Pilatus* pilatus, int compression, enum DetectorSize num_pixel
     }
     else {
         pilatus->mem_pool = malloc(nitems * (size_t)num_pixels * ELEMENT_SIZE);
-        item_size = num_pixels;
+        item_size = num_pixels * ELEMENT_SIZE;
     }
     for (size_t i=0; i<nitems; i++) {
         queue_push(&pilatus->queue, &((char*)pilatus->mem_pool)[i*item_size]);
