@@ -11,10 +11,28 @@
 #include <sys/inotify.h>
 #include <zmq.h>
 #include "tiff.h"
+#include "queue.h"
+#include <bitshuffle.h>
 
 #define BUFFER_SIZE 1024
 #define EVENT_SIZE sizeof(struct inotify_event)
 #define EVENT_BUF_LEN (1024 * (EVENT_SIZE + 16))
+
+// assume pilatus has int32 data so 4 bytes per pixel
+#define ELEMENT_SIZE 4
+
+extern void bshuf_write_uint64_BE(void* buf, uint64_t num);
+extern void bshuf_write_uint32_BE(void* buf, uint32_t num);
+
+enum DetectorSize
+{
+    // 487 x 195 Pixels
+    Pilatus100k = 94965,
+    // 981 x 1043 Pixels
+    Pilatus1M = 1023183,
+    // ‎1475 x 1679 Pixels
+    Pilatus2M = 2476525
+};
 
 typedef struct
 {
@@ -24,10 +42,16 @@ typedef struct
     void* push_socket;
     void* monitor_socket;
     int scan_numer;
+    void* mem_pool;
+    void* img_buffer;
+    Queue queue;
+    int compression;
+    size_t block_size;
 } Pilatus;
 
-void pilatus_init(Pilatus* pilatus)
+void pilatus_init(Pilatus* pilatus, int compression, enum DetectorSize num_pixels)
 {
+    pilatus->compression = compression;
     pilatus->last_file[0] = '\0';
     pilatus->scan_numer = 0;
     pilatus->context = zmq_ctx_new();
@@ -40,6 +64,25 @@ void pilatus_init(Pilatus* pilatus)
     rc = zmq_bind(pilatus->monitor_socket, "tcp://*:9998");
     if (rc != 0) {
         printf("zmq_bind for monitor socket failed\n");
+    }
+    
+    const size_t nitems = 100;
+    queue_init(&pilatus->queue, nitems);
+    size_t item_size;
+    if (compression) {
+        pilatus->img_buffer = malloc(num_pixels * ELEMENT_SIZE);
+        pilatus->block_size = bshuf_default_block_size(ELEMENT_SIZE);
+        const int num_elements = num_pixels;
+        const size_t max_out_size = bshuf_compress_lz4_bound(num_elements, ELEMENT_SIZE, pilatus->block_size) + 12;
+        pilatus->mem_pool = malloc(nitems * max_out_size);
+        item_size = max_out_size;
+    }
+    else {
+        pilatus->mem_pool = malloc(nitems * (size_t)num_pixels * ELEMENT_SIZE);
+        item_size = num_pixels;
+    }
+    for (size_t i=0; i<nitems; i++) {
+        queue_push(&pilatus->queue, &((char*)pilatus->mem_pool)[i*item_size]);
     }
 }
 
@@ -177,7 +220,13 @@ void handle_respone(char buffer[], int nb, Pilatus* pilatus)
     }
 }
 
-void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* base_folder)
+void free_queue_callback(void* data, void* hint)
+{
+    Queue* queue = (Queue*)hint;
+    queue_push(queue, data);
+}
+
+void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* folder)
 {
     int i = 0;
     while (i < nb) {
@@ -189,17 +238,39 @@ void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* base_folde
             //printf("frame number %d\n", frame_number);
             
             char full_path[512];
-            snprintf(full_path, 512, "%s/%s", base_folder, event->name);
+            snprintf(full_path, 512, "%s/%s", folder, event->name);
             FILE* fp = fopen(full_path, "rb");
             if (!fp) {
                 printf("Could not open file %s\n", full_path);
             }
-            
             TifInfo info;
             parse_tif(fp, &info);
+            
             zmq_msg_t msg;
-            zmq_msg_init_size(&msg, info.strip_byte_counts);
-            read_tif_image(fp, &info, zmq_msg_data(&msg));
+            void* blob;
+            queue_pop(&pilatus->queue, &blob);
+            int blob_size;
+            
+            if (pilatus->compression) {
+                read_tif_image(fp, &info, pilatus->img_buffer);
+                
+                char* output = (char*)blob;
+                // HDF5 header http://www.hdfgroup.org/services/filters/HDF5_LZ4.pdf
+                bshuf_write_uint64_BE(output, info.strip_byte_counts);
+                bshuf_write_uint32_BE(output + 8, pilatus->block_size * ELEMENT_SIZE);
+                int num_elements = info.strip_byte_counts / ELEMENT_SIZE;
+                int count = bshuf_compress_lz4(pilatus->img_buffer, output + 12, num_elements, ELEMENT_SIZE, 0);
+                if (count < 0) {
+                    printf("Error in bitshuffle compression\n");
+                }
+                blob_size = count + 12;
+            }
+            else {
+                read_tif_image(fp, &info, blob);
+                blob_size = info.strip_byte_counts;
+            }
+            
+            zmq_msg_init_data(&msg, blob, blob_size, free_queue_callback, &pilatus->queue);
             
             fclose(fp);
             int rc = remove(full_path);
@@ -214,13 +285,16 @@ void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* base_folde
             }
             
             char header[1024];
+            char comp_bool[8];
+            (pilatus->compression) ? strcpy(comp_bool, "true") : strcpy(comp_bool, "false");
             int length = snprintf(header, 1024, 
                                   "{\"htype\": \"image\","
                                   "\"frame\": %d,"
                                   "\"shape\": [%d,%d],"
                                   "\"type\": \"int32\","
+                                  "\"compression\": %s,"
                                   "\"exposure_time\": %f}",
-                                  frame_number, info.height, info.width, exposure_time);
+                                  frame_number, info.height, info.width, comp_bool, exposure_time);
             // send json header
             zmq_send(pilatus->push_socket, header, length, ZMQ_SNDMORE);
             
@@ -275,17 +349,19 @@ void notify_close(Notify* notify)
 
 int main()
 {
-    const char* base_folder = "/lima_data";
+    const char* folder = "/lima_data";
+    int compression = 1;
+    enum DetectorSize num_pixels = Pilatus100k;
     
     Pilatus pilatus;
-    pilatus_init(&pilatus);
+    pilatus_init(&pilatus, compression, num_pixels);
     
     int server_sock = start_server();
     int camserver_sock = connect_camserver();
     int client_sock = 0;
     
     Notify notify;
-    notify_init(&notify, base_folder, IN_MOVED_TO);
+    notify_init(&notify, folder, IN_MOVED_TO);
     
     fd_set set;
     char buffer[BUFFER_SIZE];
@@ -342,7 +418,7 @@ int main()
         // new data file
         else if (FD_ISSET(notify.fd, &set)) {
             int nb = read(notify.fd, notify.buffer, EVENT_BUF_LEN);
-            handle_file(notify.buffer, nb, &pilatus, base_folder);
+            handle_file(notify.buffer, nb, &pilatus, folder);
         }
     }
     
