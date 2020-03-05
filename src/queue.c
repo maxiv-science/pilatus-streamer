@@ -23,15 +23,16 @@ int queue_empty(Queue* queue)
 
 int queue_push(Queue* queue, void* item)
 {
-    int64_t next = queue->read_index + 1;
+    const int64_t index = queue->write_index;
+    int64_t next = index + 1;
     // queue is full
     if (next == queue->read_index) {
         return 0;
     }
     else {
-        queue->buffer[queue->write_index % queue->size] = item;
-        int64_t index = queue->write_index;
-        queue->write_index++;
+        queue->buffer[index % queue->size] = item;
+        queue->write_index = next;
+        // avoid StoreLoad reordering of the write_index store and the read_index load
         //asm volatile("mfence" ::: "memory");
         __sync_synchronize();
         // signal consumer that queue is no longer empty
@@ -46,8 +47,9 @@ int queue_push(Queue* queue, void* item)
 
 int queue_pop(Queue* queue, void** item)
 {
+    int64_t index = queue->read_index;
     // check if queue is empty
-    if (queue->read_index == queue->write_index) {
+    if (index == queue->write_index) {
         pthread_mutex_lock(&queue->mutex);
         while (queue_empty(queue) && !queue->terminate) {
             pthread_cond_wait(&queue->cond, &queue->mutex);
@@ -58,7 +60,8 @@ int queue_pop(Queue* queue, void** item)
         }
     }
     *item = queue->buffer[queue->read_index % queue->size];
-    queue->read_index++;
+    int64_t next = index + 1;
+    queue->read_index = next;
     return 1;
 }
 
