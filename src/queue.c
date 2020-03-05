@@ -59,7 +59,7 @@ int queue_pop(Queue* queue, void** item)
             return 0;
         }
     }
-    *item = queue->buffer[queue->read_index % queue->size];
+    *item = queue->buffer[index % queue->size];
     int64_t next = index + 1;
     queue->read_index = next;
     return 1;
