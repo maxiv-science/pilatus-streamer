@@ -295,7 +295,7 @@ void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* folder)
                                   "\"frame\": %d,"
                                   "\"shape\": [%d,%d],"
                                   "\"type\": \"int32\","
-                                  "\"compression\": %s}",
+                                  "\"compression\": \"%s\"}",
                                   frame_number, shape[0], shape[1], compression);
             // send json header
             zmq_send(pilatus->push_socket, header, length, ZMQ_SNDMORE);

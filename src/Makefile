@@ -1,8 +1,8 @@
 .SUFFIXES:
 
 CC = gcc
-CFLAGS = -Wall -std=gnu99 -fopenmp -O2 -march=native -DNDEBUG
-LIBS = -lzmq -lm
+CFLAGS = -Wall -std=gnu99 -fopenmp -O2 -march=native -DNDEBUG -I/home/det/zeromq/include
+LIBS = -L/home/det/zeromq/lib -lzmq -lm
 
 OBJECTS =  tiff.o queue.o
 	
