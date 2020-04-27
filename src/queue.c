@@ -24,16 +24,17 @@ int queue_empty(Queue* queue)
 int queue_push(Queue* queue, void* item)
 {
     const int64_t index = queue->write_index;
-    int64_t next = index + 1;
+    
+    int64_t limit = queue->read_index + queue->size;
     // queue is full
-    if (next == queue->read_index) {
+    if (index >= limit) {
         return 0;
     }
     else {
         queue->buffer[index % queue->size] = item;
+        int64_t next = index + 1;
         queue->write_index = next;
         // avoid StoreLoad reordering of the write_index store and the read_index load
-        //asm volatile("mfence" ::: "memory");
         __sync_synchronize();
         // signal consumer that queue is no longer empty
         if (index == queue->read_index) {
