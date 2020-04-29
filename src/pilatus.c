@@ -193,8 +193,10 @@ void handle_respone(char buffer[], int nb, Pilatus* pilatus)
                 }
             }
             // Error in aquisition, send end of stream message
+            // Pilatus 3 seems to send 7 ERR and 7 OK if you abort aquisition
+            // don't send end of stream message for now to avoid double messages
             else {
-                end_of_exposure(pilatus);
+                // end_of_exposure(pilatus);
             }
         }
     }
@@ -259,8 +261,8 @@ void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* folder)
                 fseek(fp, 0, SEEK_SET);
                 fread(blob, 1, file_size, fp);
                 blob_size = file_size;
-                shape[0] = get_int(blob, "X-Binary-Size-Fastest-Dimension:");
-                shape[1] = get_int(blob, "X-Binary-Size-Second-Dimension:");
+                shape[0] = get_int(blob, "X-Binary-Size-Second-Dimension:");
+                shape[1] = get_int(blob, "X-Binary-Size-Fastest-Dimension:");
             }
             zmq_msg_t blob_msg;
             zmq_msg_init_data(&blob_msg, blob, blob_size, free_queue_callback, &pilatus->queue);
@@ -296,9 +298,7 @@ void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* folder)
             memcpy(zmq_msg_data(&header_msg), header, length);
             
             // Override most recent image
-            //zmq_msg_init(&pilatus->most_recent_img.header_msg);
             zmq_msg_copy(&pilatus->most_recent_img.header_msg, &header_msg);
-            //zmq_msg_init(&pilatus->most_recent_img.blob_msg);
             zmq_msg_copy(&pilatus->most_recent_img.blob_msg, &blob_msg);
             
             // send json header
@@ -430,7 +430,7 @@ int main()
                 char msg [256];
                 zmq_recv(pilatus.monitor_socket, msg, 255, 0);
                 printf("monitor msg: %s\n", msg);
-                //zmq_send(pilatus.monitor_socket, "hello", 5, 0);
+                
                 // send json header
                 zmq_msg_t header;
                 zmq_msg_init(&header);
