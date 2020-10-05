@@ -1,5 +1,7 @@
 #include "queue.h"
 
+#define __sync_compiler() __asm__ __volatile__("":::"memory")
+
 void queue_init(Queue* queue, int size)
 {
     queue->size = size;
@@ -23,17 +25,22 @@ int queue_empty(Queue* queue)
 
 int queue_push(Queue* queue, void* item)
 {
+    // atomic load
+    __sync_compiler();
     const int64_t index = queue->write_index;
-    int64_t next = index + 1;
+    __sync_compiler() ;
+    
+    int64_t limit = queue->read_index + queue->size;
     // queue is full
-    if (next == queue->read_index) {
+    if (index >= limit) {
         return 0;
     }
     else {
         queue->buffer[index % queue->size] = item;
+        int64_t next = index + 1;
+        // atomic store of write_index
+        __sync_compiler();
         queue->write_index = next;
-        // avoid StoreLoad reordering of the write_index store and the read_index load
-        //asm volatile("mfence" ::: "memory");
         __sync_synchronize();
         // signal consumer that queue is no longer empty
         if (index == queue->read_index) {
@@ -47,7 +54,10 @@ int queue_push(Queue* queue, void* item)
 
 int queue_pop(Queue* queue, void** item)
 {
+    // atomic load
+    __sync_compiler();
     int64_t index = queue->read_index;
+    __sync_compiler();
     // check if queue is empty
     if (index == queue->write_index) {
         pthread_mutex_lock(&queue->mutex);
@@ -61,7 +71,10 @@ int queue_pop(Queue* queue, void** item)
     }
     *item = queue->buffer[index % queue->size];
     int64_t next = index + 1;
+    // atomic store of read_index
+    __sync_compiler();
     queue->read_index = next;
+    __sync_synchronize();
     return 1;
 }
 

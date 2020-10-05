@@ -12,7 +12,6 @@
 #include <zmq.h>
 #include "tiff.h"
 #include "queue.h"
-#include <bitshuffle.h>
 
 #define BUFFER_SIZE 1024
 #define EVENT_SIZE sizeof(struct inotify_event)
@@ -21,39 +20,41 @@
 // assume pilatus has int32 data so 4 bytes per pixel
 #define ELEMENT_SIZE 4
 
-extern void bshuf_write_uint64_BE(void* buf, uint64_t num);
-extern void bshuf_write_uint32_BE(void* buf, uint32_t num);
-
 enum DetectorSize
 {
     // 487 x 195 Pixels
     Pilatus100k = 94965,
     // 981 x 1043 Pixels
     Pilatus1M = 1023183,
-    // ‎1475 x 1679 Pixels
+    // 1475 x 1679 Pixels
     Pilatus2M = 2476525
 };
 
 typedef struct
 {
+    zmq_msg_t header_msg;
+    zmq_msg_t blob_msg;
+} Payload;
+
+typedef struct
+{
     char last_file[256];
     char recent_file[256];
+    const char* file_ending;
     void* context;
     void* push_socket;
     void* monitor_socket;
     int scan_numer;
     void* mem_pool;
-    void* img_buffer;
     Queue queue;
-    int compression;
-    size_t block_size;
+    Payload most_recent_img;
 } Pilatus;
 
-void pilatus_init(Pilatus* pilatus, int compression, enum DetectorSize num_pixels)
+void pilatus_init(Pilatus* pilatus, enum DetectorSize num_pixels, const char* file_ending)
 {
-    pilatus->compression = compression;
     pilatus->last_file[0] = '\0';
     pilatus->scan_numer = 0;
+    pilatus->file_ending = file_ending;
     pilatus->context = zmq_ctx_new();
     pilatus->push_socket = zmq_socket(pilatus->context, ZMQ_PUSH);
     int rc = zmq_bind(pilatus->push_socket, "tcp://*:9999");
@@ -66,21 +67,15 @@ void pilatus_init(Pilatus* pilatus, int compression, enum DetectorSize num_pixel
         printf("zmq_bind for monitor socket failed\n");
     }
     
+    zmq_msg_init(&pilatus->most_recent_img.header_msg);
+    zmq_msg_init(&pilatus->most_recent_img.blob_msg);
+    
     const size_t nitems = 100;
+    // overhead for cbf header 128k
+    const size_t overhead = 128000;
     queue_init(&pilatus->queue, nitems);
-    size_t item_size;
-    if (compression) {
-        pilatus->img_buffer = malloc(num_pixels * ELEMENT_SIZE);
-        pilatus->block_size = bshuf_default_block_size(ELEMENT_SIZE);
-        const int num_elements = num_pixels;
-        const size_t max_out_size = bshuf_compress_lz4_bound(num_elements, ELEMENT_SIZE, pilatus->block_size) + 12;
-        pilatus->mem_pool = malloc(nitems * max_out_size);
-        item_size = max_out_size;
-    }
-    else {
-        pilatus->mem_pool = malloc(nitems * (size_t)num_pixels * ELEMENT_SIZE);
-        item_size = num_pixels * ELEMENT_SIZE;
-    }
+    pilatus->mem_pool = malloc(nitems * (size_t)num_pixels * ELEMENT_SIZE + overhead);
+    size_t item_size = num_pixels * ELEMENT_SIZE;
     for (size_t i=0; i<nitems; i++) {
         queue_push(&pilatus->queue, &((char*)pilatus->mem_pool)[i*item_size]);
     }
@@ -122,21 +117,6 @@ int start_server()
     return sock;
 }
 
-int check_monitor(void* monitor_socket)
-{
-    zmq_pollitem_t items[] = {
-        {monitor_socket, 0, ZMQ_POLLIN, 0}
-    };
-    zmq_poll(items, 1, 0);
-    if (items[0].revents & ZMQ_POLLIN) {
-        char msg [256];
-        zmq_recv(monitor_socket, msg, 255, 0);
-        printf("monitor msg: %s\n", msg);
-        return 1;
-    }
-    return 0;
-}
-
 int get_frame_number(const char* filename)
 {
     int frame_number;
@@ -166,7 +146,7 @@ void handle_request(char buffer[], int nb, int camserver_sock, Pilatus* pilatus)
             save_path[0] = '\0';
         }
         nb = snprintf(buffer, BUFFER_SIZE-1, 
-                      "%s scan%d.tif", cmd, pilatus->scan_numer);
+                      "%s scan%d.%s", cmd, pilatus->scan_numer, pilatus->file_ending);
         // for null terminator added by snprintf
         nb += 1;
         pilatus->scan_numer++;
@@ -213,8 +193,10 @@ void handle_respone(char buffer[], int nb, Pilatus* pilatus)
                 }
             }
             // Error in aquisition, send end of stream message
+            // Pilatus 3 seems to send 7 ERR and 7 OK if you abort aquisition
+            // don't send end of stream message for now to avoid double messages
             else {
-                end_of_exposure(pilatus);
+                // end_of_exposure(pilatus);
             }
         }
     }
@@ -226,13 +208,28 @@ void free_queue_callback(void* data, void* hint)
     queue_push(queue, data);
 }
 
+int get_int(char* data, const char* pattern)
+{
+    char* ptr = strstr(data, pattern);
+    if (!ptr) {
+        printf("Bad header - cannot find %s\n", pattern);
+    }
+    ptr += strlen(pattern);
+    int value;
+    if (sscanf(ptr, "%d", &value) != 1) {
+        printf("Error getting binary size\n");
+        return -1;
+    }
+    return value;
+}
+
 void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* folder)
 {
     int i = 0;
     while (i < nb) {
         struct inotify_event* event = (struct inotify_event*) &buffer[i];
         if (event->len) {
-            //printf("New file: %s\n", event->name);
+            printf("New file: %s\n", event->name);
             strcpy(pilatus->recent_file, event->name);
             int frame_number = get_frame_number(event->name);
             //printf("frame number %d\n", frame_number);
@@ -243,75 +240,72 @@ void handle_file(char buffer[], int nb, Pilatus* pilatus, const char* folder)
             if (!fp) {
                 printf("Could not open file %s\n", full_path);
             }
-            TifInfo info;
-            parse_tif(fp, &info);
             
-            zmq_msg_t msg;
             void* blob;
             queue_pop(&pilatus->queue, &blob);
-            int blob_size;
-            
-            if (pilatus->compression) {
-                read_tif_image(fp, &info, pilatus->img_buffer);
-                
-                char* output = (char*)blob;
-                // HDF5 header http://www.hdfgroup.org/services/filters/HDF5_LZ4.pdf
-                bshuf_write_uint64_BE(output, info.strip_byte_counts);
-                bshuf_write_uint32_BE(output + 8, pilatus->block_size * ELEMENT_SIZE);
-                int num_elements = info.strip_byte_counts / ELEMENT_SIZE;
-                int count = bshuf_compress_lz4(pilatus->img_buffer, output + 12, num_elements, ELEMENT_SIZE, 0);
-                if (count < 0) {
-                    printf("Error in bitshuffle compression\n");
-                }
-                blob_size = count + 12;
-            }
-            else {
+            int blob_size = 0;
+            int shape[2] = {0, 0};
+            // Tif image
+            if (strncmp(pilatus->file_ending, "tif", 3) == 0) {
+                TifInfo info;
+                parse_tif(fp, &info);
                 read_tif_image(fp, &info, blob);
                 blob_size = info.strip_byte_counts;
+                shape[0] = info.height;
+                shape[1] = info.width;
             }
-            
-            zmq_msg_init_data(&msg, blob, blob_size, free_queue_callback, &pilatus->queue);
+            // cbf image
+            else if (strncmp(pilatus->file_ending, "cbf", 3) == 0) {
+                fseek(fp, 0, SEEK_END);
+                long file_size = ftell(fp);
+                fseek(fp, 0, SEEK_SET);
+                fread(blob, 1, file_size, fp);
+                blob_size = file_size;
+                shape[0] = get_int(blob, "X-Binary-Size-Second-Dimension:");
+                shape[1] = get_int(blob, "X-Binary-Size-Fastest-Dimension:");
+            }
+            zmq_msg_t blob_msg;
+            zmq_msg_init_data(&blob_msg, blob, blob_size, free_queue_callback, &pilatus->queue);
             
             fclose(fp);
             int rc = remove(full_path);
             if (rc == -1) {
                 printf("Error could not delete file %s\n", full_path);
             }
-            
+            /*
             float exposure_time = 0.0;
             char* tmp = strstr(info.description, "Exposure_time");
             if (tmp != NULL) {
                 sscanf(tmp + 13, "%f", &exposure_time);
             }
-            
+            */
             char header[1024];
-            char comp_bool[8];
-            (pilatus->compression) ? strcpy(comp_bool, "true") : strcpy(comp_bool, "false");
+            char compression[8];
+            compression[0] = '\0';
+            if (strncmp(pilatus->file_ending, "cbf", 3) == 0) {
+                strcpy(compression, "cbf");
+            }
             int length = snprintf(header, 1024, 
                                   "{\"htype\": \"image\","
                                   "\"frame\": %d,"
                                   "\"shape\": [%d,%d],"
                                   "\"type\": \"int32\","
-                                  "\"compression\": %s,"
-                                  "\"exposure_time\": %f}",
-                                  frame_number, info.height, info.width, comp_bool, exposure_time);
-            // send json header
-            zmq_send(pilatus->push_socket, header, length, ZMQ_SNDMORE);
+                                  "\"compression\": \"%s\"}",
+                                  frame_number, shape[0], shape[1], compression);
             
-            // send copy of image to monitoring socket
-            // FIXME send exposure time as well to monitoring socket
-            if (check_monitor(pilatus->monitor_socket)) {
-                zmq_msg_t copy;
-                zmq_msg_init(&copy);
-                zmq_msg_copy(&copy, &msg);
-                zmq_send(pilatus->monitor_socket, header, length, ZMQ_SNDMORE);
-                if (zmq_sendmsg(pilatus->monitor_socket, &copy, 0) == -1) {
-                    printf("Error in sending message to monitor socket\n");
-                }
-            }
+            zmq_msg_t header_msg;
+            zmq_msg_init_size(&header_msg, length);
+            memcpy(zmq_msg_data(&header_msg), header, length);
+            
+            // Override most recent image
+            zmq_msg_copy(&pilatus->most_recent_img.header_msg, &header_msg);
+            zmq_msg_copy(&pilatus->most_recent_img.blob_msg, &blob_msg);
+            
+            // send json header
+            zmq_sendmsg(pilatus->push_socket, &header_msg, ZMQ_SNDMORE);
             
             // send binary blob
-            zmq_sendmsg(pilatus->push_socket, &msg, 0);
+            zmq_sendmsg(pilatus->push_socket, &blob_msg, 0);
             
             if (strcmp(event->name, pilatus->last_file) == 0) {
                 end_of_exposure(pilatus);
@@ -349,12 +343,12 @@ void notify_close(Notify* notify)
 
 int main()
 {
-    const char* folder = "/lima_data";
-    int compression = 1;
-    enum DetectorSize num_pixels = Pilatus100k;
+    const char* folder = "/ramdisk";
+    const char* file_ending = "cbf";
+    enum DetectorSize num_pixels = Pilatus2M;
     
     Pilatus pilatus;
-    pilatus_init(&pilatus, compression, num_pixels);
+    pilatus_init(&pilatus, num_pixels, file_ending);
     
     int server_sock = start_server();
     int camserver_sock = connect_camserver();
@@ -376,6 +370,12 @@ int main()
         
         FD_SET(server_sock, &set);
         maxfd = fmax(server_sock, maxfd);
+        
+        int socket_fd;
+        size_t fd_size = sizeof(socket_fd);
+        zmq_getsockopt(pilatus.monitor_socket, ZMQ_FD, &socket_fd, &fd_size);
+        FD_SET(socket_fd, &set);
+        maxfd = fmax(socket_fd, maxfd);
         
         if (client_sock > 0) {
             FD_SET(client_sock, &set);
@@ -399,7 +399,7 @@ int main()
         }
         
         // new connection from client
-        else if (FD_ISSET(server_sock, &set)) {
+        if (FD_ISSET(server_sock, &set)) {
             client_sock = accept(server_sock, (struct sockaddr*)NULL, NULL);
             if (client_sock == -1) {
                 printf("Error accepting connection\n");
@@ -408,7 +408,7 @@ int main()
         }
         
         // new response from camserver
-        else if (FD_ISSET(camserver_sock, &set)) {
+        if (FD_ISSET(camserver_sock, &set)) {
             int nb = read(camserver_sock, buffer, BUFFER_SIZE);
             write(client_sock, buffer, nb);
             handle_respone(buffer, nb, &pilatus);
@@ -416,9 +416,35 @@ int main()
         }
         
         // new data file
-        else if (FD_ISSET(notify.fd, &set)) {
+        if (FD_ISSET(notify.fd, &set)) {
             int nb = read(notify.fd, notify.buffer, EVENT_BUF_LEN);
             handle_file(notify.buffer, nb, &pilatus, folder);
+        }
+        
+        // new request on monitoring socket
+        if (FD_ISSET(socket_fd, &set)) {
+            uint32_t zmq_event;
+            size_t zmq_event_size = sizeof(zmq_event);
+            zmq_getsockopt(pilatus.monitor_socket, ZMQ_EVENTS, &zmq_event, &zmq_event_size);
+            while(zmq_event & ZMQ_POLLIN) {
+                char msg [256];
+                zmq_recv(pilatus.monitor_socket, msg, 255, 0);
+                printf("monitor msg: %s\n", msg);
+                
+                // send json header
+                zmq_msg_t header;
+                zmq_msg_init(&header);
+                zmq_msg_copy(&header, &pilatus.most_recent_img.header_msg);
+                zmq_sendmsg(pilatus.monitor_socket, &header, ZMQ_SNDMORE);
+                
+                // send binary blob
+                zmq_msg_t blob;
+                zmq_msg_init(&blob);
+                zmq_msg_copy(&blob, &pilatus.most_recent_img.blob_msg);
+                zmq_sendmsg(pilatus.monitor_socket, &blob, 0);
+                
+                zmq_getsockopt(pilatus.monitor_socket, ZMQ_EVENTS, &zmq_event, &zmq_event_size);
+            } 
         }
     }
     
