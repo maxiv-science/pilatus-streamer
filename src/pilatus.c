@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/inotify.h>
+#include <getopt.h>
 #include <zmq.h>
 #include "tiff.h"
 #include "queue.h"
@@ -341,11 +342,76 @@ void notify_close(Notify* notify)
     close(notify->fd);
 }
 
-int main()
+static void show_usage(const char* p)
 {
-    const char* folder = "/ramdisk";
-    const char* file_ending = "cbf";
+  printf("\npilatus-streamer\n"
+         "\n"
+         "Usage: %s [-h]\n"
+         "    -f    The folder on the dcu to watch for new files\n"
+         "    -t    The file format of the images the dcu writes. Either cbf or tif\n"
+         "    -s    The detector size. Either Pilatus100k, Pilatus1M or Pilatus2M\n"
+         "    -h     print this message and exit\n", p);
+}
+
+
+int main(int argc, char* argv[])
+{
+    char* folder = NULL;
+    char* file_ending = NULL;
     enum DetectorSize num_pixels = Pilatus2M;
+    
+    int c;
+    while((c = getopt(argc, argv, ":hf:t:s:")) != EOF) {
+        switch(c) {
+            case 'h':
+                show_usage(argv[0]);
+                return 0;
+            case 'f':
+                folder = optarg;
+                break;
+                
+            case 't':
+                file_ending = optarg;
+                break;
+                
+            case 's':
+                if (strcmp("Pilatus100k", optarg) == 0) {
+                    num_pixels = Pilatus100k;
+                }
+                else if (strcmp("Pilatus1M", optarg) == 0) {
+                    num_pixels = Pilatus1M;
+                }
+                else if (strcmp("Pilatus2M", optarg) == 0) {
+                    num_pixels = Pilatus2M;
+                }
+                else {
+                    printf("Wrong detector size\n");
+                    return -1;
+                }
+                break;
+        }
+    }
+    printf("Folder %s\n", folder);
+    printf("File ending %s\n", file_ending);
+    
+    if (folder == NULL) {
+        printf("Folder to watch is empty. Abort!\n");
+        return -1;
+    }
+    
+     if (file_ending == NULL) {
+        printf("File ending is empty. Abort!\n");
+        return -1;
+    }
+    
+    if (strcmp("cbf", file_ending) == 0) {
+    }
+    else if (strcmp("tif", file_ending) == 0) {
+    }
+    else {
+        printf("Wrong file format. Has to be either tif or cbf\n");
+        return -1;
+    }
     
     Pilatus pilatus;
     pilatus_init(&pilatus, num_pixels, file_ending);
