@@ -495,7 +495,7 @@ int main(int argc, char* argv[])
             while(zmq_event & ZMQ_POLLIN) {
                 char msg [256];
                 zmq_recv(pilatus.monitor_socket, msg, 255, 0);
-                printf("monitor msg: %s\n", msg);
+                //printf("monitor msg: %s\n", msg);
                 
                 // send json header
                 zmq_msg_t header;
